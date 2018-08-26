@@ -1,0 +1,142 @@
+---
+title: "Peer-graded Assignment: Course Project 2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+
+
+
+```
+
+#Analysis of public health and economic impact of storms and other severe weather
+
+#Synopsis: 
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database.
+The analysis addresses two questions, 1)which types of events are most harmful to population health? and 2)which types of events have the greatest economic consequences?
+The dataset provides the fatalies, injuries, property damage and crop damage estimate of each event. The analysis concludes the most harmful event to population health is Tornado and the greatest economic consequences were made by flood.
+
+
+#Data Processing
+1.Download storm data from https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2 and then save it to /data folder  
+2.Read the bz2 file directly  
+3.The download cmd cannot be cached, so I commented it for one time use  
+4.Reading csv file of 40+ MB is time-consuming, I cached it  
+``` {r dataprocessing, cache=TRUE}
+##download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2","data/storm_data.csv.bz2",cacheOK=TRUE)
+
+storm<-read.csv('./data/storm_data.csv.bz2')
+
+```
+
+## Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+###Results
+This analysis considers fatalities/injuries as the source of the population health.  It includes both direct and indirect fatalities and injuries. 
+
+
+```{r}
+storm %>% group_by(EVTYPE) %>% summarise(total_fatalities = sum(FATALITIES, na.rm = TRUE),total_injuries = sum(INJURIES, na.rm=TRUE)) %>% arrange(desc(total_fatalities,total_injuries)) ->a
+
+# Grouped Bar Plot
+b<-a[1:4,]
+barplot(t(as.matrix(b[, 2:3])), main="Top 4 Fatalities/Injuries Distribution by Type of Events",names.arg=b$EVTYPE,
+  xlab="Type of Events", legend=colnames(b[,2:3]),col=c("darkblue","red"),beside=TRUE)
+
+
+```
+
+
+The grouped barplot shows the top 4 event types based on the total fatalities and injuries. Tornado is the most harmful with respect to population health. The fatalities and injuries caused by Tornado is `r b[1,"total_fatalities"]` and `r b[1,"total_injuries"]` respectively.
+
+
+##Across the United States, which types of events have the greatest economic consequences?
+
+There are 2 types of damage estimate available in the dataset, property damage and crop damage, the variables are PROPDMG and CROPDMG.PROPDMGEXP and CROPDMGEXP are the magnitude respectively.  
+
+###Data Processing(question 2)
+According to the [Microsoft Word - 10-1605_StormDataPrep.doc
+](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf), DMGEXP should be an alphabetical character signifying the magnitude of the number, i.e., 1.55B for $1,550,000,000. Alphabetical characters used to signify magnitude include “K” for thousands, “M” for millions, and “B” for billions. 
+
+
+``` {r}
+storm %>% group_by(EVTYPE) %>% select(PROPDMG,PROPDMGEXP,CROPDMG,CROPDMGEXP,EVTYPE,REMARKS) -> cost
+
+summary(cost)
+
+
+```
+
+
+As the summary indicated, PROPDMGEXP,CROPDMGEXP are not complete.   
+
+There are three major issues:  
+1. Missing DMGEXP data  
+2. Category "5" is not clear  
+3. Category "0" is not clear  
+Then, I'll try to map each category to the correct unit.
+
+####Examing missing DMGEXP data
+``` {r}
+cost %>%  filter(PROPDMGEXP=="") -> outliers_na
+summary(outliers_na)
+```
+
+As the Mean is close to Zero and the max is small, it is safe to conclude that when the DMGEXP is blank, the damage cost estimate is zero all the time.
+
+
+####Examine category "5"
+``` {r}
+cost %>%  filter(PROPDMGEXP=='5') -> outliers_5
+tail(outliers_5)
+```
+
+After examing one of the remarks in the "5" category, I find out that "5" represents 5K.  See line 5.
+
+####Examing category "0"
+``` {r}
+cost %>%  filter(PROPDMGEXP=='0') -> outliers_0
+summary(outliers_0)
+```
+
+I cannot find any info from documentation or remarks about this category.  since the majority events are Thunderstorm Winds, I make a scientific guess that the unit is "M".
+
+####Convert each category to the proper unit and bind all categories together, plot the top 5 events by total damage cost
+``` {r}
+cost %>% group_by(EVTYPE) %>% filter(PROPDMGEXP=='K') %>% summarise(total=sum(PROPDMG*1000)) -> cost_p_k
+cost %>% group_by(EVTYPE) %>% filter(PROPDMGEXP=='M') %>% summarise(total=sum(PROPDMG*1000000)) -> cost_p_m
+cost %>% group_by(EVTYPE) %>% filter(PROPDMGEXP=='0') %>% summarise(total=sum(PROPDMG*1000000)) -> cost_p_0
+cost %>% group_by(EVTYPE) %>% filter(PROPDMGEXP=='B') %>% summarise(total=sum(PROPDMG*1000000000)) -> cost_p_b
+cost %>% group_by(EVTYPE) %>% filter(PROPDMGEXP=='5') %>% summarise(total=sum(PROPDMG*5000)) -> cost_p_5k
+
+cost %>% group_by(EVTYPE) %>% filter(CROPDMGEXP=='K') %>% summarise(total=sum(CROPDMG*1000)) -> cost_c_k1
+cost %>% group_by(EVTYPE) %>% filter(CROPDMGEXP=='M') %>% summarise(total=sum(CROPDMG*1000000)) -> cost_c_m
+cost %>% group_by(EVTYPE) %>% filter(CROPDMGEXP=='k') %>% summarise(total=sum(CROPDMG*1000)) -> cost_c_k2
+cost %>% group_by(EVTYPE) %>% filter(CROPDMGEXP=='0') %>% summarise(total=sum(CROPDMG*1000000)) -> cost_c_0
+cost %>% group_by(EVTYPE) %>% filter(CROPDMGEXP=='B') %>% summarise(total=sum(CROPDMG*1000000000)) -> cost_c_b
+
+bind_rows(cost_p_k,cost_p_m,cost_p_0,cost_p_b,cost_p_5k,cost_c_k1,cost_c_m,cost_c_k2,cost_c_0,cost_c_b) -> result
+```
+
+###Results
+```{r}
+result %>% group_by(EVTYPE) %>% summarise(total_exp=sum(total)) %>% arrange(desc(total_exp)) -> result2
+
+top5<-result2[1:5,]
+x <- barplot(top5$total_exp, main="Top 5 Type of Events have greatest econmic consequences",names.arg=top5$EVTYPE,
+  xlab="Type of Events",ylab="Total Damage Cost",beside=TRUE, las=2,xaxt="n",yaxt="n")
+text(cex=0.6, x=x-.25, y=-2.25, top5$EVTYPE, xpd=TRUE, srt=45)
+axis(2, at=top5$total_exp, labels=format(paste(round(top5$total_exp/1e9,1),"B"), scientific=FALSE), hadj=0.9, cex.axis=0.8, las=2)
+
+
+
+
+```
+
+##Conclusion
+As the two charts concluded, the Tornado caused the most harm to population health, `r b[1,"total_fatalities"]` death and `r b[1,"total_injuries"]` injuries.
+The flood caused the greatest economic loss which is `r top5[1,"total_exp"]/1000000000` billion dollors.
+
+
